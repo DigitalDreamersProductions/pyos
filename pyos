@@ -1,0 +1,151 @@
+#!/usr/bin/env python3
+"""
+pyos - shell ligero en Python que proxiea comandos Linux
++ auto-actualización desde un repo GitHub
+"""
+
+import os
+import sys
+import shlex
+import subprocess
+import readline
+import shutil
+from pathlib import Path
+import pty
+import signal
+import requests  # pip install requests
+import tempfile
+
+# ---- CONFIG ----
+PYOS_VERSION = "1.0.0"
+GITHUB_RAW_URL = "https://raw.githubusercontent.com/tuusuario/pyos/main"  # cambia a tu repo
+REMOTE_VERSION_FILE = f"{GITHUB_RAW_URL}/pyos_version.txt"
+REMOTE_SCRIPT_FILE = f"{GITHUB_RAW_URL}/pyos"
+
+HISTFILE = str(Path.home() / ".pyos_history")
+PROMPT = "pyos> "
+
+# ---- History y tab ----
+try:
+    readline.read_history_file(HISTFILE)
+except FileNotFoundError:
+    pass
+readline.set_history_length(1000)
+
+def save_history():
+    try:
+        readline.write_history_file(HISTFILE)
+    except Exception:
+        pass
+
+# ---- Auto-actualización ----
+def check_for_update():
+    try:
+        r = requests.get(REMOTE_VERSION_FILE, timeout=5)
+        if r.status_code != 200:
+            return
+        latest_version = r.text.strip()
+        if latest_version != PYOS_VERSION:
+            print(f"[pyos] Nueva versión disponible: {latest_version}. Actualizando...")
+            update_script()
+    except Exception as e:
+        print(f"[pyos] No se pudo comprobar actualizaciones: {e}")
+
+def update_script():
+    try:
+        r = requests.get(REMOTE_SCRIPT_FILE, timeout=10)
+        if r.status_code != 200:
+            print("[pyos] No se pudo descargar script nuevo")
+            return
+        new_code = r.text
+        script_path = "/opt/pyos/pyos"
+        # guardar temporal
+        with tempfile.NamedTemporaryFile("w", delete=False) as tmp:
+            tmp.write(new_code)
+            tmp.flush()
+            tmp_name = tmp.name
+        # reemplazar
+        shutil.copy(tmp_name, script_path)
+        os.chmod(script_path, 0o755)
+        print("[pyos] Actualización completada. Reiniciando...")
+        os.execv(script_path, [script_path])
+    except Exception as e:
+        print(f"[pyos] Error actualizando: {e}")
+
+# ---- Ejecutar comandos ----
+def run_command(tokens):
+    try:
+        r = subprocess.run(tokens, check=False)
+        return r.returncode
+    except FileNotFoundError:
+        print(f"{tokens[0]}: comando no encontrado")
+        return 127
+    except Exception as e:
+        print("Error ejecutando comando:", e)
+        return 1
+
+def enter_application(app_args):
+    if not app_args:
+        print("Uso: enter <aplicacion> [args...]")
+        return 2
+    exe = shutil.which(app_args[0])
+    if not exe:
+        print(f"{app_args[0]}: comando no encontrado")
+        return 127
+    try:
+        return pty.spawn(app_args)
+    except Exception as e:
+        print("Error al entrar en la aplicación:", e)
+        return 1
+
+# ---- Bucle principal ----
+def main_loop():
+    check_for_update()  # <- comprueba actualizaciones al arrancar
+    while True:
+        try:
+            line = input(PROMPT)
+        except EOFError:
+            print()
+            break
+        except KeyboardInterrupt:
+            print()
+            continue
+        line = line.strip()
+        if not line:
+            continue
+        readline.write_history_file(HISTFILE)
+        tokens = shlex.split(line)
+        if not tokens:
+            continue
+        cmd, *args = tokens
+
+        if cmd in ("exit", "quit"):
+            break
+        if cmd == "cd":
+            try:
+                os.chdir(os.path.expanduser(args[0] if args else "~"))
+            except Exception as e:
+                print("cd:", e)
+            continue
+        if cmd == "enter":
+            enter_application(args)
+            continue
+        if cmd == "help":
+            print("Comandos especiales:\n  enter <app>\n  update\n  exit/quit\n  help")
+            continue
+        if cmd == "update":
+            update_script()
+            continue
+
+        exe = shutil.which(cmd) if "/" not in cmd else cmd
+        if exe:
+            run_command([exe, *args])
+        else:
+            print(f"{cmd}: comando no encontrado")
+
+if __name__ == "__main__":
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    try:
+        main_loop()
+    finally:
+        save_history()
