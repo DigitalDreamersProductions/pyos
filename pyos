@@ -6,7 +6,7 @@ import urllib.request
 import shutil
 
 # URL cruda a tu script en GitHub (ajústala con tu repo real)
-GITHUB_RAW_URL = "https://raw.githubusercontent.com/TU_USUARIO/TU_REPO/main/pyos.py"
+GITHUB_RAW_URL = "https://raw.githubusercontent.com/DigitalDreamersProductions/pyos/main/pyos.py"
 LOCAL_PATH = os.path.abspath(__file__)
 
 def update_from_github():
@@ -48,3 +48,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
